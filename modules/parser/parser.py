@@ -3,8 +3,6 @@ import re
 
 import requests
 import xml.etree.ElementTree as etree
-import time
-import json
 from bs4 import BeautifulSoup
 from pathlib import Path
 from jinja2 import Template
@@ -13,12 +11,30 @@ from modules.log.log import log
 
 # requests Отправка запросов на получение данных
 # xml.etree.ElementTree Парсинг XML
-# time Выполнение паузы между запросами (защита от блокировки)
-# json Сохранение результата запроса в формате json
 # bs4 Парсинг HTML ответов
 # logging Логирование событий приложения
 
 RSS_BASE_URL ="https://hh.ru/search/vacancy/rss"
+
+WORK_FORMAT_MAP = {
+    "ON_SITE": "🏢 В офисе",
+    "REMOTE": "🏠 Удалённо",
+    "HYBRID": "🔄 Гибрид",
+}
+EMPLOYMENT_MAP = {
+    "FULL": "📋 Полная занятость",
+    "PART": "⏳ Частичная занятость",
+}
+EXPERIENCE_MAP = {
+    "noExperience": "🟢 Без опыта",
+    "between1And3": "🟡 1-3 года",
+    "between3And6": "🟠 3-6 лет",
+    "moreThan6": "🔴 Более 6 лет",
+}
+REGION_MAP = {
+    "1202": "Новосибирская область",
+    "113": "Россия (все регионы)",
+}
 
 
 def clean_html_text(text):
@@ -209,56 +225,50 @@ def render_job_card_template(
     return None
 
 
-def main():
-    rss_url = create_rss_request_url(
-        search_text="DevOps",
-        region=1,
-        employment_form="FULL",
-        required_experience="between1And3",
-    )
+def parse_rss_url_to_dict(rss_url):
+    params = rss_url.split('?')[1].split('&')
 
-    print("Загружаем RSS-ленту...")
-    rss_items = parse_rss_feed(rss_url)
-    print(f"Найдено {len(rss_items)} вакансий\n")
+    params_dict = {
+        'text': None,
+        'area': None,
+        'work-format': None,
+        'employment_form': None,
+        'experience': None,
+        'url': rss_url
+    }
 
-    # Парсим первые 3 вакансии (чтобы не нагружать)
-    limit = 1
-    results = []
+    for param in params:
+        param_name, param_value = param.split("=")
 
-    for i, item in enumerate(rss_items[:limit]):
-        print(f"[{i + 1}/{limit}] Парсим: {item['title']}")
+        if param_name == "work-format":
+            if param_value  in WORK_FORMAT_MAP:
+                params_dict["work-format"] = WORK_FORMAT_MAP[param_value]
+        elif param_name == "employment_form":
+            if param_value in EMPLOYMENT_MAP:
+                params_dict["employment_form"] = EMPLOYMENT_MAP[param_value]
+        elif param_name == "experience":
+            if param_value in EXPERIENCE_MAP:
+                params_dict["experience"] = EXPERIENCE_MAP[param_value]
+        elif param_name == "area":
+            if param_value in REGION_MAP:
+                params_dict["area"] = REGION_MAP[param_value]
+        elif param_name in params_dict:
+            params_dict[param_name] = param_value
 
-        vacancy_data = parse_vacancy(item['link'])
-        if vacancy_data:
-            results.append(vacancy_data)
-            print(f"  ✓ Готово")
-        else:
-            print(f"  ✗ Ошибка при загрузке")
-
-        time.sleep(3)  # Пауза между запросами
-
-    # Сохраняем результат
-    if results:
-        with open('../../data/vacancies.json', 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-
-        print(f"\n✓ Сохранено {len(results)} вакансий в vacancies.json")
-
-        # Выводим краткую информацию
-        print("\n" + "=" * 60)
-        for vac in results:
-            print(f"\n{vac['title']}")
-            print(f"  Компания: {vac['company']}")
-            print(f"  Опыт: {vac['experience']}")
-            print(f"  График: {vac['schedule']}")
-            print(f"  Ссылка: {vac['url']}")
-
-            # render_job_card_template(
-            #     template_path="./templates/jobs.html",
-            #     vacancy=vac)
-    else:
-        print("Не удалось спарсить ни одной вакансии")
+    return params_dict
 
 
-if __name__ == "__main__":
-    main()
+def render_rss_params_template(template_path: str, params_dict: dict):
+    path = Path(template_path)
+
+    try:
+        if path.exists():
+            with path.open(mode="r", encoding="utf-8") as f:
+                template = Template(f.read())
+                return template.render(
+                    params=params_dict,
+                )
+    except Exception as e:
+        log.error(f"Error while rendering params template: {e}")
+
+    return ""

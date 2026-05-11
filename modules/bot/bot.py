@@ -1,3 +1,5 @@
+import time
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     filters, ApplicationBuilder, CommandHandler, MessageHandler,
@@ -5,10 +7,14 @@ from telegram.ext import (
 )
 
 from modules.log.log import log
-from modules.parser.parser import create_rss_request_url
-from modules.db.db import add_rss_subscription
+from modules.parser.parser import create_rss_request_url, parse_rss_url_to_dict, render_rss_params_template, \
+    parse_rss_feed, parse_vacancy, render_job_card_template
+from modules.db.db import add_rss_subscription, list_user_rss_subscriptions, fetch_all_rss_dict
 
 TELEGRAM_API_TOKEN = ""
+VACANCIES_PARSE_LIMIT =  2
+
+app = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
 
 # Состояния диалога
 (SEARCH_TEXT, REGION, WORK_FORMAT, EMPLOYMENT_FORM, EXPERIENCE) = range(5)
@@ -62,6 +68,60 @@ async def help_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         "/reset – Отказаться от всех действующих рассылок"
     ])
     await update.message.reply_text(text=help_text)
+
+
+async def show_subscriptions_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    subscriptions = list_user_rss_subscriptions(user_id)
+
+    message = f""
+
+    for _, _, rss_url in subscriptions:
+        params = parse_rss_url_to_dict(rss_url)
+        message += render_rss_params_template("templates/rss_params_message.html", params)
+        message += "\n"
+
+    await update.message.reply_text(
+        f"📝 <b>Ваши подписки:</b>\n{message}",
+        parse_mode='HTML'
+    )
+
+
+async def send_vacancies_info():
+    users_rss = fetch_all_rss_dict()
+
+    for user_id, subscriptions in users_rss.items():
+        for subscription in subscriptions:
+            log.info(f"Load RSS {subscription.get("url")}...")
+            rss_items = parse_rss_feed(subscription.get("url"))
+            log.info(f"Find {len(rss_items)} items...")
+
+            results = []
+            for i, item in enumerate(rss_items[:VACANCIES_PARSE_LIMIT]):
+                log.info(f"[{i + 1}/{VACANCIES_PARSE_LIMIT}] Parse: {item['title']}")
+
+                vacancy_data = parse_vacancy(item['link'])
+                if vacancy_data:
+                    results.append(vacancy_data)
+                    log.info(f"Successfully parsed...")
+                else:
+                    log.info(f"Failed to parse...")
+
+                # Пауза между запросами
+                time.sleep(3)
+
+            # По каждой вакансии отправить уведомление пользователю
+            for vac in results:
+                job_card = render_job_card_template(
+                    template_path="./templates/jobs.html",
+                    vacancy=vac
+                )
+
+                await app.bot.send_message(
+                    chat_id=user_id,
+                    text=job_card,
+                    parse_mode="HTML"
+                )
 
 
 async def unsubscribe_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -181,7 +241,7 @@ async def experience_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     # Сохранить подписку на вакансии в базе данных
     add_rss_subscription(
-        username=query.from_user.id,
+        user_id=query.from_user.id,
         rss_url=rss_url
     )
 
@@ -219,8 +279,6 @@ async def subscribe_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def run_bot():
     log.info("Starting Telegram bot...")
 
-    app = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
-
     # ConversationHandler для /subscribe
     subscribe_conv = ConversationHandler(
         entry_points=[CommandHandler("subscribe", subscribe_command_handler)],
@@ -249,6 +307,7 @@ def run_bot():
         CommandHandler("help", help_command_handler),
         CommandHandler("unsubscribe", unsubscribe_command_handler),
         CommandHandler("reset", reset_command_handler),
+        CommandHandler("show_subscriptions", show_subscriptions_command_handler),
         subscribe_conv,
     ])
 

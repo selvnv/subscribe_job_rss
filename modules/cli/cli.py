@@ -1,8 +1,9 @@
 import click
+import asyncio
 from enum import Enum
 
-from modules.bot.bot import run_bot
-from modules.db.db import init as dbinit, list_rss_subscriptions
+from modules.bot.bot import run_bot, send_vacancies_info
+from modules.db.db import init as dbinit, list_rss_subscriptions, fetch_all_rss_dict
 from modules.log.log import log
 from modules.utils.utils import print_table_paged
 
@@ -45,5 +46,13 @@ def list_subscriptions():
     except Exception as e:
         log.error(f"Error while list subscriptions: {e}")
         print(UserLogPrefix.ERROR.value + f"Error while list subscriptions: {e}")
+
+
+@cli.command(name="bcast")
+def bcast_vacancies_info():
+    try:
+        asyncio.run(send_vacancies_info())
+    except Exception as e:
+        log.error(f"Error while fetch all subscriptions: {e}")
 
 

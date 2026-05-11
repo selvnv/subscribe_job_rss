@@ -25,20 +25,32 @@ def init():
         log.error(f"Error while init database: {e}")
 
 
-def add_rss_subscription(username, rss_url):
+def add_rss_subscription(user_id, rss_url):
     try:
         log.info(f"Try to connect to database")
         with sqlite3.connect("data/rss_subscriptions.db") as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
-            query = f"""
+            # Проверка наличия такой подписки у пользователя
+            check_query = """
+                SELECT COUNT(*) FROM rss_subscriptions 
+                WHERE user_id = ? AND rss_url = ?
+            """
+            cursor.execute(check_query, (user_id, rss_url))
+            count = cursor.fetchone()[0]
+
+            # Если подписка уже существует, не добавлять повторно
+            if count > 0:
+                return
+
+            query = """
                 INSERT INTO rss_subscriptions (user_id, rss_url)
                 VALUES (?, ?)
             """
 
             log.info(f"Try to create table with query: {query}")
-            cursor.execute(query, (username, rss_url))
+            cursor.execute(query, (user_id, rss_url))
     except Exception as e:
         log.error(f"Error while add rss subscription: {e}")
 
@@ -50,9 +62,9 @@ def delete_rss_subscription(subscription_id):
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
-            query = f"""
+            query = """
                 DELETE FROM rss_subscriptions 
-                WHERE subscription_id = ?
+                WHERE id = ?
                 RETURNING rss_url
             """
 
@@ -64,20 +76,20 @@ def delete_rss_subscription(subscription_id):
         log.error(f"Error while delete rss subscription: {e}")
 
 
-def list_user_rss_subscriptions(username):
+def list_user_rss_subscriptions(user_id):
     try:
         log.info(f"Try to connect to database")
         with sqlite3.connect("data/rss_subscriptions.db") as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
-            query = f"""
+            query = """
                 SELECT id, user_id, rss_url FROM rss_subscriptions 
-                WHERE username = ?
+                WHERE user_id = ?
             """
 
             log.info(f"Try to get user subscriptions with query: {query}")
-            cursor.execute(query, (username,))
+            cursor.execute(query, (user_id,))
 
             return cursor.fetchall()
     except Exception as e:
@@ -91,7 +103,7 @@ def list_rss_subscriptions():
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
-            query = f"""
+            query = """
                 SELECT * FROM rss_subscriptions 
             """
 
@@ -101,3 +113,32 @@ def list_rss_subscriptions():
             return cursor.fetchall()
     except Exception as e:
         log.error(f"Error while list rss subscriptions: {e}")
+
+
+def fetch_all_rss_dict():
+    try:
+        log.info(f"Try to connect to database")
+        with sqlite3.connect("data/rss_subscriptions.db") as conn:
+            log.info(f"Connected to database")
+            cursor = conn.cursor()
+
+            query = """
+                SELECT user_id, rss_url, id
+                FROM rss_subscriptions
+                ORDER BY user_id, id
+            """
+
+            cursor.execute(query)
+
+            user_subscriptions = {}
+            for user_id, rss_url, sub_id in cursor.fetchall():
+                if user_id not in user_subscriptions:
+                    user_subscriptions[user_id] = []
+                user_subscriptions[user_id].append({
+                    'id': sub_id,
+                    'url': rss_url
+                })
+
+            return user_subscriptions
+    except Exception as e:
+        log.error(f"Error while fetch rss subscriptions: {e}")
