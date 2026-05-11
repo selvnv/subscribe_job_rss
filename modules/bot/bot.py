@@ -4,8 +4,9 @@ from telegram.ext import (
     CallbackQueryHandler, ContextTypes, ConversationHandler
 )
 
-from modules.log import log
-from modules.parser import create_rss_request_url
+from modules.log.log import log
+from modules.parser.parser import create_rss_request_url
+from modules.db.db import add_rss_subscription
 
 TELEGRAM_API_TOKEN = ""
 
@@ -83,7 +84,11 @@ async def subscribe_command_handler(update: Update, context: ContextTypes.DEFAUL
 
 async def search_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем поисковый запрос и переходим к выбору региона"""
+
+    # Сохранить текст запроса для поиска вакансий
     context.user_data["search_text"] = update.message.text
+
+    # Отправить пользователю клавиатуру для выбора региона поиска вакансий
     await update.message.reply_text(
         "📍 Выберите регион поиска:",
         reply_markup=build_keyboard(REGION_MAP)
@@ -93,13 +98,18 @@ async def search_text_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def region_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем регион, переходим к формату работы"""
+
+    # Ожидать выбор пользователем региона поиска вакансий из списка, предоставленного в search_text_received
     query = update.callback_query
     await query.answer()
 
+    # Извлечь из ответа регион для поиска вакансий, если пользователь не пропустил этап
     data = query.data
     context.user_data["region"] = int(data) if data != "SKIP" else None
 
     selected_label = REGION_MAP.get(data, "Не выбран")
+
+    # Отправить пользователю клавиатуру для выбора формата работы
     await query.edit_message_text(
         f"📍 Регион: {selected_label}\n\n💻 Выберите формат работы:",
         reply_markup=build_keyboard(WORK_FORMAT_MAP)
@@ -109,13 +119,18 @@ async def region_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def work_format_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем формат работы, переходим к занятости"""
+
+    # Ожидать выбор пользователем формата работы
     query = update.callback_query
     await query.answer()
 
+    # Извлечь из ответа формат работы, если этап не пропущен пользователем
     data = query.data
     context.user_data["work_format"] = data if data != "SKIP" else None
 
     selected_label = WORK_FORMAT_MAP.get(data, "Не выбран")
+
+    # Отправить пользователю клавиатуру для выбора типа занятости
     await query.edit_message_text(
         f"💻 Формат работы: {selected_label}\n\n📝 Выберите тип занятости:",
         reply_markup=build_keyboard(EMPLOYMENT_MAP)
@@ -125,13 +140,18 @@ async def work_format_selected(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def employment_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сохраняем занятость, переходим к опыту"""
+
+    # Ожидать выбор пользователем типа занятости
     query = update.callback_query
     await query.answer()
 
+    # Извлечь из ответа тип занятости, если пользователь не пропустил этап
     data = query.data
     context.user_data["employment_form"] = data if data != "SKIP" else None
 
     selected_label = EMPLOYMENT_MAP.get(data, "Не выбрана")
+
+    # Отправить пользователю клавиатуру для выбора опыта работы
     await query.edit_message_text(
         f"📝 Занятость: {selected_label}\n\n🎓 Выберите требуемый опыт:",
         reply_markup=build_keyboard(EXPERIENCE_MAP)
@@ -141,22 +161,31 @@ async def employment_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def experience_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Финальный шаг: сохраняем опыт, формируем URL и выводим результат"""
+
+    # Ожидать выбор пользователем опыта работы
     query = update.callback_query
     await query.answer()
 
+    # Извлечь из ответа опыт работы, если пользователь не пропустил этап
     data = query.data
     context.user_data["experience"] = data if data != "SKIP" else None
 
-    # Формируем итоговый URL
+    # Сформировать итоговый URL для получения вакансий из ленты с заданными фильтрами
     rss_url = create_rss_request_url(
         search_text=context.user_data.get("search_text", ""),
         region=context.user_data.get("region"),
         work_format=context.user_data.get("work_format"),
         employment_form=context.user_data.get("employment_form"),
-        required_experience=context.user_data.get("experience"),
+        required_experience=context.user_data.get("experience")
     )
 
-    # Собираем читаемый отчёт о выбранных параметрах
+    # Сохранить подписку на вакансии в базе данных
+    add_rss_subscription(
+        username=query.from_user.id,
+        rss_url=rss_url
+    )
+
+    # Собрать отчёт о выбранных параметрах
     summary_lines = [
         "✅ *Подписка оформлена!*",
         "",

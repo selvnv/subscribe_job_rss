@@ -1,19 +1,19 @@
 import sqlite3
 
-from modules.log import log
+from modules.log.log import log
 
 
 def init():
     try:
         log.info("Try to connect to database")
-        with sqlite3.connect("db/rss_subscriptions.db") as conn:
+        with sqlite3.connect("data/rss_subscriptions.db") as conn:
             log.info("Connected to database")
             cursor = conn.cursor()
 
             query = """
                 CREATE TABLE IF NOT EXISTS rss_subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
                     rss_url TEXT NOT NULL
                 )
             """
@@ -28,12 +28,12 @@ def init():
 def add_rss_subscription(username, rss_url):
     try:
         log.info(f"Try to connect to database")
-        with sqlite3.connect("db/rss_subscriptions.db") as conn:
+        with sqlite3.connect("data/rss_subscriptions.db") as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
             query = f"""
-                INSERT INTO rss_subscriptions (username, rss_url)
+                INSERT INTO rss_subscriptions (user_id, rss_url)
                 VALUES (?, ?)
             """
 
@@ -46,7 +46,7 @@ def add_rss_subscription(username, rss_url):
 def delete_rss_subscription(subscription_id):
     try:
         log.info(f"Try to connect to database")
-        with sqlite3.connect("db/rss_subscriptions.db") as conn:
+        with sqlite3.connect("data/rss_subscriptions.db") as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
@@ -67,12 +67,12 @@ def delete_rss_subscription(subscription_id):
 def list_user_rss_subscriptions(username):
     try:
         log.info(f"Try to connect to database")
-        with sqlite3.connect("db/rss_subscriptions.db") as conn:
+        with sqlite3.connect("data/rss_subscriptions.db") as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
             query = f"""
-                SELECT id, username, rss_url FROM rss_subscriptions 
+                SELECT id, user_id, rss_url FROM rss_subscriptions 
                 WHERE username = ?
             """
 
@@ -82,3 +82,22 @@ def list_user_rss_subscriptions(username):
             return cursor.fetchall()
     except Exception as e:
         log.error(f"Error while list user rss subscriptions: {e}")
+
+
+def list_rss_subscriptions():
+    try:
+        log.info(f"Try to connect to database")
+        with sqlite3.connect("data/rss_subscriptions.db") as conn:
+            log.info(f"Connected to database")
+            cursor = conn.cursor()
+
+            query = f"""
+                SELECT * FROM rss_subscriptions 
+            """
+
+            log.info(f"Try to get user subscriptions with query: {query}")
+            cursor.execute(query)
+
+            return cursor.fetchall()
+    except Exception as e:
+        log.error(f"Error while list rss subscriptions: {e}")

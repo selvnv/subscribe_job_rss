@@ -9,7 +9,7 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 from jinja2 import Template
 
-from modules.log import log
+from modules.log.log import log
 
 # requests Отправка запросов на получение данных
 # xml.etree.ElementTree Парсинг XML
@@ -239,7 +239,7 @@ def main():
 
     # Сохраняем результат
     if results:
-        with open('../data/vacancies.json', 'w', encoding='utf-8') as f:
+        with open('../../data/vacancies.json', 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
 
         print(f"\n✓ Сохранено {len(results)} вакансий в vacancies.json")
