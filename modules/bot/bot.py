@@ -7,12 +7,13 @@ from telegram.ext import (
 )
 
 from modules.log.log import log
-from modules.parser.parser import create_rss_request_url, parse_rss_url_to_dict, render_rss_params_template, \
-    parse_rss_feed, parse_vacancy, render_job_card_template
-from modules.db.db import add_rss_subscription, list_user_rss_subscriptions, fetch_all_rss_dict
 from modules.constants import (
     WORK_FORMAT_MAP, EMPLOYMENT_MAP, EXPERIENCE_MAP, REGION_MAP
 )
+from modules.parser.parser import create_rss_request_url, parse_rss_url_to_dict, render_rss_params_template, \
+    parse_rss_feed, parse_vacancy, render_job_card_template
+from modules.db.db import add_rss_subscription, list_user_rss_subscriptions, fetch_all_rss_dict
+
 
 TELEGRAM_API_TOKEN = ""
 VACANCIES_PARSE_LIMIT =  2

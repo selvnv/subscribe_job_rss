@@ -23,6 +23,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools]
 packages = [
     "modules",
+    "modules.constants",
     "modules.bot",
     "modules.cli",
     "modules.db",
