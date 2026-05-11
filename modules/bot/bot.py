@@ -1,4 +1,4 @@
-import time
+import asyncio
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -10,35 +10,19 @@ from modules.log.log import log
 from modules.parser.parser import create_rss_request_url, parse_rss_url_to_dict, render_rss_params_template, \
     parse_rss_feed, parse_vacancy, render_job_card_template
 from modules.db.db import add_rss_subscription, list_user_rss_subscriptions, fetch_all_rss_dict
+from modules.constants import (
+    WORK_FORMAT_MAP, EMPLOYMENT_MAP, EXPERIENCE_MAP, REGION_MAP
+)
 
 TELEGRAM_API_TOKEN = ""
 VACANCIES_PARSE_LIMIT =  2
 
-app = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
 
 # Состояния диалога
 (SEARCH_TEXT, REGION, WORK_FORMAT, EMPLOYMENT_FORM, EXPERIENCE) = range(5)
 
-# Карта значений для кнопок (callback_data -> осмысленное значение)
-WORK_FORMAT_MAP = {
-    "ON_SITE": "🏢 В офисе",
-    "REMOTE": "🏠 Удалённо",
-    "HYBRID": "🔄 Гибрид",
-}
-EMPLOYMENT_MAP = {
-    "FULL": "📋 Полная занятость",
-    "PART": "⏳ Частичная занятость",
-}
-EXPERIENCE_MAP = {
-    "noExperience": "🟢 Без опыта",
-    "between1And3": "🟡 1-3 года",
-    "between3And6": "🟠 3-6 лет",
-    "moreThan6": "🔴 Более 6 лет",
-}
-REGION_MAP = {
-    "1202": "Новосибирская область",
-    "113": "Россия (все регионы)",
-}
+
+app = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
 
 
 def build_keyboard(options_map: dict, skip_callback: str = "SKIP") -> InlineKeyboardMarkup:
@@ -49,6 +33,12 @@ def build_keyboard(options_map: dict, skip_callback: str = "SKIP") -> InlineKeyb
     ]
     buttons.append([InlineKeyboardButton("⏭ Пропустить", callback_data=skip_callback)])
     return InlineKeyboardMarkup(buttons)
+
+
+async def unexpected_text_on_keyboard_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Пожалуйста, используйте кнопки для выбора или нажмите 'Пропустить'."
+    )
 
 
 async def start_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -92,36 +82,44 @@ async def send_vacancies_info():
 
     for user_id, subscriptions in users_rss.items():
         for subscription in subscriptions:
-            log.info(f"Load RSS {subscription.get("url")}...")
-            rss_items = parse_rss_feed(subscription.get("url"))
-            log.info(f"Find {len(rss_items)} items...")
+            rss_url = subscription.get("url")
+            try:
+                log.info(f"Load RSS {rss_url}...")
+                rss_items = parse_rss_feed(rss_url)
+                log.info(f"Find {len(rss_items)} items...")
 
-            results = []
-            for i, item in enumerate(rss_items[:VACANCIES_PARSE_LIMIT]):
-                log.info(f"[{i + 1}/{VACANCIES_PARSE_LIMIT}] Parse: {item['title']}")
+                results = []
+                for i, item in enumerate(rss_items[:VACANCIES_PARSE_LIMIT]):
+                    log.info(f"[{i + 1}/{VACANCIES_PARSE_LIMIT}] Parse: {item['title']}")
 
-                vacancy_data = parse_vacancy(item['link'])
-                if vacancy_data:
-                    results.append(vacancy_data)
-                    log.info(f"Successfully parsed...")
-                else:
-                    log.info(f"Failed to parse...")
+                    vacancy_data = parse_vacancy(item['link'])
+                    if vacancy_data:
+                        results.append(vacancy_data)
+                        log.info(f"Successfully parsed...")
+                    else:
+                        log.info(f"Failed to parse...")
 
-                # Пауза между запросами
-                time.sleep(3)
+                    # Пауза между запросами
+                    await asyncio.sleep(1)
 
-            # По каждой вакансии отправить уведомление пользователю
-            for vac in results:
-                job_card = render_job_card_template(
-                    template_path="./templates/jobs.html",
-                    vacancy=vac
-                )
+                # По каждой вакансии отправить уведомление пользователю
+                for vac in results:
+                    try:
+                        job_card = render_job_card_template(
+                            template_path="./templates/jobs.html",
+                            vacancy=vac
+                        )
 
-                await app.bot.send_message(
-                    chat_id=user_id,
-                    text=job_card,
-                    parse_mode="HTML"
-                )
+                        await app.bot.send_message(
+                            chat_id=user_id,
+                            text=job_card,
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        log.error(f"Failed to send vacancy to user {user_id}: {e}")
+
+            except Exception as e:
+                log.error(f"Failed to process subscription {rss_url} for user {user_id}: {e}")
 
 
 async def unsubscribe_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -284,19 +282,23 @@ def run_bot():
         entry_points=[CommandHandler("subscribe", subscribe_command_handler)],
         states={
             SEARCH_TEXT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, search_text_received)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, search_text_received),
             ],
             REGION: [
-                CallbackQueryHandler(region_selected)
+                CallbackQueryHandler(region_selected),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, unsubscribe_command_handler),
             ],
             WORK_FORMAT: [
-                CallbackQueryHandler(work_format_selected)
+                CallbackQueryHandler(work_format_selected),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, unsubscribe_command_handler),
             ],
             EMPLOYMENT_FORM: [
-                CallbackQueryHandler(employment_selected)
+                CallbackQueryHandler(employment_selected),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, unsubscribe_command_handler),
             ],
             EXPERIENCE: [
-                CallbackQueryHandler(experience_selected)
+                CallbackQueryHandler(experience_selected),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, unsubscribe_command_handler),
             ],
         },
         fallbacks=[CommandHandler("cancel", subscribe_cancel)],

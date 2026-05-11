@@ -8,33 +8,17 @@ from pathlib import Path
 from jinja2 import Template
 
 from modules.log.log import log
+from modules.constants import (
+    WORK_FORMAT_MAP, EMPLOYMENT_MAP, EXPERIENCE_MAP, REGION_MAP
+)
 
 # requests Отправка запросов на получение данных
 # xml.etree.ElementTree Парсинг XML
 # bs4 Парсинг HTML ответов
 # logging Логирование событий приложения
 
-RSS_BASE_URL ="https://hh.ru/search/vacancy/rss"
 
-WORK_FORMAT_MAP = {
-    "ON_SITE": "🏢 В офисе",
-    "REMOTE": "🏠 Удалённо",
-    "HYBRID": "🔄 Гибрид",
-}
-EMPLOYMENT_MAP = {
-    "FULL": "📋 Полная занятость",
-    "PART": "⏳ Частичная занятость",
-}
-EXPERIENCE_MAP = {
-    "noExperience": "🟢 Без опыта",
-    "between1And3": "🟡 1-3 года",
-    "between3And6": "🟠 3-6 лет",
-    "moreThan6": "🔴 Более 6 лет",
-}
-REGION_MAP = {
-    "1202": "Новосибирская область",
-    "113": "Россия (все регионы)",
-}
+RSS_BASE_URL ="https://hh.ru/search/vacancy/rss"
 
 
 def clean_html_text(text):
@@ -143,9 +127,13 @@ def parse_rss_feed(rss_url):
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
 
-    response = requests.get(rss_url, headers=headers)
-    if response.status_code != 200:
-        print(f"Ошибка загрузки RSS: {response.status_code}")
+    try:
+        response = requests.get(rss_url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            log.error(f"RSS load error: HTTP {response.status_code} for {rss_url}")
+            return []
+    except Exception as e:
+        log.error(f"RSS load failed for {rss_url}: {e}")
         return []
 
     # Парсим XML
@@ -226,7 +214,7 @@ def render_job_card_template(
 
 
 def parse_rss_url_to_dict(rss_url):
-    params = rss_url.split('?')[1].split('&')
+    params = rss_url.split('?')[1].split('&') if  "?" in rss_url else []
 
     params_dict = {
         'text': None,

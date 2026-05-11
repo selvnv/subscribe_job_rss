@@ -1,17 +1,11 @@
 import click
 import asyncio
-from enum import Enum
+
 
 from modules.bot.bot import run_bot, send_vacancies_info
-from modules.db.db import init as dbinit, list_rss_subscriptions, fetch_all_rss_dict
-from modules.log.log import log
+from modules.db.db import init as dbinit, list_rss_subscriptions
+from modules.log.log import log, UserLogPrefix
 from modules.utils.utils import print_table_paged
-
-
-class UserLogPrefix(Enum):
-    INFO = "\033[1m\033[94m[INFO] >>>>\033[0m "
-    WARNING = "\033[1m\033[93m[WARN] >>>>\033[0m "
-    ERROR = "\033[1m\033[91m[ERROR] >>>>\033[0m "
 
 
 @click.group()

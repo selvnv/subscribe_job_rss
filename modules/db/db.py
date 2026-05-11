@@ -1,12 +1,20 @@
 import sqlite3
+from pathlib import Path
+
 
 from modules.log.log import log
 
 
+DB_PATH = "data/rss_subscriptions.db"
+
+
 def init():
     try:
+        # Создать каталог для базы данных, если не существует
+        Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+
         log.info("Try to connect to database")
-        with sqlite3.connect("data/rss_subscriptions.db") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             log.info("Connected to database")
             cursor = conn.cursor()
 
@@ -28,7 +36,7 @@ def init():
 def add_rss_subscription(user_id, rss_url):
     try:
         log.info(f"Try to connect to database")
-        with sqlite3.connect("data/rss_subscriptions.db") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
@@ -58,7 +66,7 @@ def add_rss_subscription(user_id, rss_url):
 def delete_rss_subscription(subscription_id):
     try:
         log.info(f"Try to connect to database")
-        with sqlite3.connect("data/rss_subscriptions.db") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
@@ -70,8 +78,9 @@ def delete_rss_subscription(subscription_id):
 
             log.info(f"Try to delete subscription with query: {query}")
             cursor.execute(query, (subscription_id,))
+            row = cursor.fetchone()
 
-            return cursor.fetchone()[0]
+            return row[0] if row else None
     except Exception as e:
         log.error(f"Error while delete rss subscription: {e}")
 
@@ -79,7 +88,7 @@ def delete_rss_subscription(subscription_id):
 def list_user_rss_subscriptions(user_id):
     try:
         log.info(f"Try to connect to database")
-        with sqlite3.connect("data/rss_subscriptions.db") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
@@ -99,7 +108,7 @@ def list_user_rss_subscriptions(user_id):
 def list_rss_subscriptions():
     try:
         log.info(f"Try to connect to database")
-        with sqlite3.connect("data/rss_subscriptions.db") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
@@ -118,7 +127,7 @@ def list_rss_subscriptions():
 def fetch_all_rss_dict():
     try:
         log.info(f"Try to connect to database")
-        with sqlite3.connect("data/rss_subscriptions.db") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             log.info(f"Connected to database")
             cursor = conn.cursor()
 
