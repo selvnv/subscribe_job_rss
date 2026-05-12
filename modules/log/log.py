@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 from enum import Enum
 from pathlib import Path
 
@@ -17,9 +18,14 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(log_path / "app.log", encoding="utf-8"),
+        RotatingFileHandler(
+            log_path / "app.log",
+            maxBytes=10 * 1024 * 1024,  # 10 MB
+            backupCount=5,
+            encoding="utf-8"
+        ),
     ]
 )
 
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("subjob")

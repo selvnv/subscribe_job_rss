@@ -4,21 +4,20 @@ import re
 import requests
 import xml.etree.ElementTree as etree
 from bs4 import BeautifulSoup
-from pathlib import Path
-from jinja2 import Template
+from urllib.parse import quote, unquote
 
 from modules.log.log import log
 from modules.constants import (
     WORK_FORMAT_MAP, EMPLOYMENT_MAP, EXPERIENCE_MAP, REGION_MAP
 )
 
-# requests Отправка запросов на получение данных
-# xml.etree.ElementTree Парсинг XML
-# bs4 Парсинг HTML ответов
-# logging Логирование событий приложения
-
 
 RSS_BASE_URL ="https://hh.ru/search/vacancy/rss"
+# В заголовках запроса указывается User-Agent для
+# эмуляции выполнения запроса из обычного браузера во избежание блокировки
+REQUEST_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+}
 
 
 def clean_html_text(text):
@@ -47,15 +46,10 @@ def parse_vacancy_salary(soup):
 
 # Загружает HTML-страницу вакансии и вытягивает из нее необходимые данные
 def parse_vacancy(url):
-    # В заголовках запроса указывается User-Agent для эмуляции выполнения запроса из обычного браузера во избежание блокировки
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
-
     # Получить HTML-страницу вакансии
     try:
-        log.info(f"Try to request url {url} with headers: {headers}")
-        response = requests.get(url, headers=headers, timeout=10)
+        log.info(f"Try to request url {url} with headers: {REQUEST_HEADERS}")
+        response = requests.get(url, headers=REQUEST_HEADERS, timeout=10)
         if response.status_code != 200:
             return None
     except Exception as error:
@@ -123,12 +117,8 @@ def parse_vacancy(url):
 
 def parse_rss_feed(rss_url):
     """Парсит RSS-ленту и возвращает список ссылок на вакансии"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    }
-
     try:
-        response = requests.get(rss_url, headers=headers, timeout=10)
+        response = requests.get(rss_url, headers=REQUEST_HEADERS, timeout=10)
         if response.status_code != 200:
             log.error(f"RSS load error: HTTP {response.status_code} for {rss_url}")
             return []
@@ -137,7 +127,11 @@ def parse_rss_feed(rss_url):
         return []
 
     # Парсим XML
-    root = etree.fromstring(response.content)
+    try:
+        root = etree.fromstring(response.content)
+    except Exception as e:
+        log.error(f"XML parse error for {rss_url}: {e}")
+        return []
 
     vacancies = []
 
@@ -159,7 +153,7 @@ def parse_rss_feed(rss_url):
 
 def create_rss_request_url(
         search_text: str,
-        region: int = None,
+        region: str = None,
         work_format: str = None,
         employment_form: str = None,
         required_experience: str = None
@@ -167,70 +161,49 @@ def create_rss_request_url(
 
     request_url = RSS_BASE_URL
 
-    if search_text:
-        request_url += f"?text={search_text.replace(' ', '+')}"
-    else:
-        return request_url
+    search_text = (search_text or "").strip()
+    if not search_text:
+        raise ValueError("search_text is required and must not be empty")
+    request_url += f"?text={quote(search_text)}"
+
 
     if region:
         request_url += f"&area={region}"
 
-    if work_format and work_format in ["ON_SITE", "REMOTE", "HYBRID"]:
-        request_url += f"&work-format={work_format}"
+    if work_format and work_format in WORK_FORMAT_MAP:
+        request_url += f"&work_format={work_format}"
 
-    if employment_form and employment_form in ["FULL", "PART"]:
+    if employment_form and employment_form in EMPLOYMENT_MAP:
         request_url += f"&employment_form={employment_form}"
 
-    if required_experience and required_experience in ["noExperience", "between1And3", "between3And6", "moreThan6"]:
+    if required_experience and required_experience in EXPERIENCE_MAP:
         request_url += f"&experience={required_experience}"
 
     return request_url
 
 
-def render_job_card_template(
-        template_path: str,
-        vacancy: dict):
-    path = Path(template_path)
-
-    try:
-        if path.exists():
-            with path.open(mode="r",encoding="utf-8") as f:
-                template = Template(f.read())
-                return template.render(
-                    vacancy_title=vacancy['title'],
-                    company=vacancy['company'],
-                    experience=vacancy['experience'],
-                    schedule=vacancy['schedule'],
-                    work_place=vacancy['work_place'],
-                    work_format=vacancy['work_format'],
-                    working_hours=vacancy['working_hours'],
-                    description=vacancy['description'],
-                    url=vacancy['url']
-                )
-    except Exception as e:
-        log.error(f"Error while rendering job card template: {e}")
-
-    return None
-
-
 def parse_rss_url_to_dict(rss_url):
-    params = rss_url.split('?')[1].split('&') if  "?" in rss_url else []
+    if "?" in rss_url:
+        query_string = rss_url.split('?', 1)[1]
+        params = query_string.split('&') if query_string else []
+    else:
+        params = []
 
     params_dict = {
         'text': None,
         'area': None,
-        'work-format': None,
+        'work_format': None,
         'employment_form': None,
         'experience': None,
         'url': rss_url
     }
 
     for param in params:
-        param_name, param_value = param.split("=")
+        param_name, param_value = param.split("=", 1)
 
-        if param_name == "work-format":
+        if param_name == "work_format":
             if param_value  in WORK_FORMAT_MAP:
-                params_dict["work-format"] = WORK_FORMAT_MAP[param_value]
+                params_dict["work_format"] = WORK_FORMAT_MAP[param_value]
         elif param_name == "employment_form":
             if param_value in EMPLOYMENT_MAP:
                 params_dict["employment_form"] = EMPLOYMENT_MAP[param_value]
@@ -241,22 +214,7 @@ def parse_rss_url_to_dict(rss_url):
             if param_value in REGION_MAP:
                 params_dict["area"] = REGION_MAP[param_value]
         elif param_name in params_dict:
-            params_dict[param_name] = param_value
+            params_dict[param_name] = unquote(param_value)
 
     return params_dict
 
-
-def render_rss_params_template(template_path: str, params_dict: dict):
-    path = Path(template_path)
-
-    try:
-        if path.exists():
-            with path.open(mode="r", encoding="utf-8") as f:
-                template = Template(f.read())
-                return template.render(
-                    params=params_dict,
-                )
-    except Exception as e:
-        log.error(f"Error while rendering params template: {e}")
-
-    return ""

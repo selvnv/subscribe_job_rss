@@ -1,4 +1,4 @@
-<b>{{ vacancy_title }}</b>
+<b>📋 <a href="{{ url }}">{{ title }}</a></b>
 
 <b>Компания:</b> {{ company }}
 <b>Требуемый опыт работы: </b> {{ experience }}
@@ -8,8 +8,7 @@
 <b>{{ work_format }}</b>
 <b>{{ working_hours }}</b>
 
-<b>Ссылка на вакансию: </b> {{ url }}
-
 <b>Описание вакансии</b>
-
 <code>{{ description[:400] + "..." }}</code>
+
+<b>🔗 RSS-лента:</b> {{ rss_url }}

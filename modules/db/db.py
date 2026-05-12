@@ -13,31 +13,41 @@ def init():
         # Создать каталог для базы данных, если не существует
         Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
-        log.info("Try to connect to database")
-        with sqlite3.connect(DB_PATH) as conn:
-            log.info("Connected to database")
+        log.debug("Trying to connect to database")
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            log.debug("Connected to database")
             cursor = conn.cursor()
 
-            query = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS rss_subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT NOT NULL,
                     rss_url TEXT NOT NULL
                 )
-            """
+            """)
 
-            log.info(f"Try to create table with query: {query}")
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS rss_subscriptions_user_id
+                ON rss_subscriptions (user_id)
+            """)
 
-            cursor.execute(query)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sent_vacancies (
+                    user_id TEXT NOT NULL,
+                    vacancy_url TEXT NOT NULL,
+                    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (user_id, vacancy_url)
+                )
+            """)
     except Exception as e:
         log.error(f"Error while init database: {e}")
 
 
-def add_rss_subscription(user_id, rss_url):
+def add_rss_subscription(user_id, rss_url) -> bool:
     try:
-        log.info(f"Try to connect to database")
-        with sqlite3.connect(DB_PATH) as conn:
-            log.info(f"Connected to database")
+        log.debug(f"Trying to connect to database")
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            log.debug(f"Connected to database")
             cursor = conn.cursor()
 
             # Проверка наличия такой подписки у пользователя
@@ -50,24 +60,26 @@ def add_rss_subscription(user_id, rss_url):
 
             # Если подписка уже существует, не добавлять повторно
             if count > 0:
-                return
+                return True
 
             query = """
                 INSERT INTO rss_subscriptions (user_id, rss_url)
                 VALUES (?, ?)
             """
 
-            log.info(f"Try to create table with query: {query}")
+            log.debug(f"Insert subscription: {user_id} -> {rss_url}")
             cursor.execute(query, (user_id, rss_url))
+            return True
     except Exception as e:
         log.error(f"Error while add rss subscription: {e}")
+        return False
 
 
 def delete_rss_subscription(subscription_id):
     try:
-        log.info(f"Try to connect to database")
-        with sqlite3.connect(DB_PATH) as conn:
-            log.info(f"Connected to database")
+        log.debug(f"Trying to connect to database")
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            log.debug(f"Connected to database")
             cursor = conn.cursor()
 
             query = """
@@ -76,20 +88,21 @@ def delete_rss_subscription(subscription_id):
                 RETURNING rss_url
             """
 
-            log.info(f"Try to delete subscription with query: {query}")
+            log.debug(f"Try to delete subscription with query: {query}")
             cursor.execute(query, (subscription_id,))
             row = cursor.fetchone()
 
             return row[0] if row else None
     except Exception as e:
         log.error(f"Error while delete rss subscription: {e}")
+        return None
 
 
-def list_user_rss_subscriptions(user_id):
+def list_user_rss_subscriptions(user_id) -> list:
     try:
-        log.info(f"Try to connect to database")
-        with sqlite3.connect(DB_PATH) as conn:
-            log.info(f"Connected to database")
+        log.debug(f"Trying to connect to database")
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            log.debug(f"Connected to database")
             cursor = conn.cursor()
 
             query = """
@@ -97,38 +110,40 @@ def list_user_rss_subscriptions(user_id):
                 WHERE user_id = ?
             """
 
-            log.info(f"Try to get user subscriptions with query: {query}")
+            log.debug(f"Try to get user subscriptions with query: {query}")
             cursor.execute(query, (user_id,))
 
             return cursor.fetchall()
     except Exception as e:
         log.error(f"Error while list user rss subscriptions: {e}")
+        return []
 
 
-def list_rss_subscriptions():
+def list_rss_subscriptions() -> list:
     try:
-        log.info(f"Try to connect to database")
-        with sqlite3.connect(DB_PATH) as conn:
-            log.info(f"Connected to database")
+        log.debug(f"Trying to connect to database")
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            log.debug(f"Connected to database")
             cursor = conn.cursor()
 
             query = """
                 SELECT * FROM rss_subscriptions 
             """
 
-            log.info(f"Try to get user subscriptions with query: {query}")
+            log.debug(f"Try to get user subscriptions with query: {query}")
             cursor.execute(query)
 
             return cursor.fetchall()
     except Exception as e:
         log.error(f"Error while list rss subscriptions: {e}")
+        return []
 
 
-def fetch_all_rss_dict():
+def dict_rss_subscriptions() -> dict:
     try:
-        log.info(f"Try to connect to database")
-        with sqlite3.connect(DB_PATH) as conn:
-            log.info(f"Connected to database")
+        log.debug(f"Trying to connect to database")
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            log.debug(f"Connected to database")
             cursor = conn.cursor()
 
             query = """
@@ -151,3 +166,47 @@ def fetch_all_rss_dict():
             return user_subscriptions
     except Exception as e:
         log.error(f"Error while fetch rss subscriptions: {e}")
+        return {}
+
+
+def is_vacancy_already_sent(user_id, vacancy_url) -> bool:
+    try:
+        log.debug(f"Trying to connect to database")
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            log.debug(f"Connected to database")
+            cursor = conn.cursor()
+
+            query = """
+                SELECT COUNT(*) FROM sent_vacancies 
+                WHERE user_id = ? AND vacancy_url = ?
+            """
+
+            cursor.execute(
+                query,
+                (user_id, vacancy_url)
+            )
+
+            return cursor.fetchone()[0] > 0
+    except Exception as e:
+        log.error(f"Error checking sent vacancy: {e}")
+        return False
+
+
+def mark_vacancy_as_sent(user_id, vacancy_url):
+    try:
+        log.debug(f"Trying to connect to database")
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            log.debug(f"Connected to database")
+            cursor = conn.cursor()
+
+            query = """
+                INSERT OR IGNORE INTO sent_vacancies (user_id, vacancy_url)
+                VALUES (?, ?)
+            """
+
+            cursor.execute(
+                query,
+                (user_id, vacancy_url)
+            )
+    except Exception as e:
+        log.error(f"Error marking vacancy as sent: {e}")
