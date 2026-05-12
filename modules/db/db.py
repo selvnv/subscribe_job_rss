@@ -1,3 +1,9 @@
+"""Слой работы с базой данных SQLite для хранения RSS-подписок и отправленных вакансий.
+
+Реализует CRUD-операции для таблиц rss_subscriptions и sent_vacancies,
+а также дедупликацию вакансий при рассылке.
+"""
+
 import sqlite3
 from pathlib import Path
 
@@ -5,19 +11,23 @@ from pathlib import Path
 from modules.log.log import log
 
 
+# Путь к файлу базы данных SQLite
 DB_PATH = "data/rss_subscriptions.db"
 
 
 def init():
+    """Инициализировать базу данных: создать файл, таблицы и индексы."""
     try:
         # Создать каталог для базы данных, если не существует
         Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
 
         log.debug("Trying to connect to database")
+        # Установить соединение с базой данных
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             log.debug("Connected to database")
             cursor = conn.cursor()
 
+            # Создать таблицу подписок, если не существует
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS rss_subscriptions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -26,11 +36,13 @@ def init():
                 )
             """)
 
+            # Создать индекс для ускорения поиска подписок по пользователю
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS rss_subscriptions_user_id
                 ON rss_subscriptions (user_id)
             """)
 
+            # Создать таблицу отправленных вакансий для дедупликации
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS sent_vacancies (
                     user_id TEXT NOT NULL,
@@ -44,13 +56,18 @@ def init():
 
 
 def add_rss_subscription(user_id, rss_url) -> bool:
+    """Добавить RSS-подписку пользователя в базу данных.
+
+    Возвращает True при успешном добавлении или если подписка уже существует.
+    """
     try:
         log.debug(f"Trying to connect to database")
+        # Установить соединение с базой данных
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             log.debug(f"Connected to database")
             cursor = conn.cursor()
 
-            # Проверка наличия такой подписки у пользователя
+            # Проверить наличие такой подписки у пользователя
             check_query = """
                 SELECT COUNT(*) FROM rss_subscriptions 
                 WHERE user_id = ? AND rss_url = ?
@@ -62,6 +79,7 @@ def add_rss_subscription(user_id, rss_url) -> bool:
             if count > 0:
                 return True
 
+            # Вставить новую запись подписки
             query = """
                 INSERT INTO rss_subscriptions (user_id, rss_url)
                 VALUES (?, ?)
@@ -76,12 +94,18 @@ def add_rss_subscription(user_id, rss_url) -> bool:
 
 
 def delete_rss_subscription(subscription_id):
+    """Удалить RSS-подписку по идентификатору записи.
+
+    Возвращает URL удалённой подписки или None, если запись не найдена.
+    """
     try:
         log.debug(f"Trying to connect to database")
+        # Установить соединение с базой данных
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             log.debug(f"Connected to database")
             cursor = conn.cursor()
 
+            # Удалить запись подписки и вернуть её URL
             query = """
                 DELETE FROM rss_subscriptions 
                 WHERE id = ?
@@ -99,12 +123,18 @@ def delete_rss_subscription(subscription_id):
 
 
 def list_user_rss_subscriptions(user_id) -> list:
+    """Получить список RSS-подписок конкретного пользователя.
+
+    Возвращает список кортежей (id, user_id, rss_url).
+    """
     try:
         log.debug(f"Trying to connect to database")
+        # Установить соединение с базой данных
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             log.debug(f"Connected to database")
             cursor = conn.cursor()
 
+            # Выбрать все подписки пользователя
             query = """
                 SELECT id, user_id, rss_url FROM rss_subscriptions 
                 WHERE user_id = ?
@@ -120,12 +150,18 @@ def list_user_rss_subscriptions(user_id) -> list:
 
 
 def list_rss_subscriptions() -> list:
+    """Получить список всех RSS-подписок из базы данных.
+
+    Возвращает список кортежей (id, user_id, rss_url).
+    """
     try:
         log.debug(f"Trying to connect to database")
+        # Установить соединение с базой данных
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             log.debug(f"Connected to database")
             cursor = conn.cursor()
 
+            # Выбрать все записи подписок
             query = """
                 SELECT * FROM rss_subscriptions 
             """
@@ -140,12 +176,18 @@ def list_rss_subscriptions() -> list:
 
 
 def dict_rss_subscriptions() -> dict:
+    """Получить все RSS-подписки, сгруппированные по пользователям.
+
+    Возвращает словарь {user_id: [{'id': sub_id, 'url': rss_url}, ...]}.
+    """
     try:
         log.debug(f"Trying to connect to database")
+        # Установить соединение с базой данных
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             log.debug(f"Connected to database")
             cursor = conn.cursor()
 
+            # Выбрать все подписки, упорядоченные по пользователю и id
             query = """
                 SELECT user_id, rss_url, id
                 FROM rss_subscriptions
@@ -154,6 +196,7 @@ def dict_rss_subscriptions() -> dict:
 
             cursor.execute(query)
 
+            # Сгруппировать подписки по user_id
             user_subscriptions = {}
             for user_id, rss_url, sub_id in cursor.fetchall():
                 if user_id not in user_subscriptions:
@@ -170,12 +213,18 @@ def dict_rss_subscriptions() -> dict:
 
 
 def is_vacancy_already_sent(user_id, vacancy_url) -> bool:
+    """Проверить, была ли вакансия уже отправлена конкретному пользователю.
+
+    Возвращает True, если отправка уже производилась.
+    """
     try:
         log.debug(f"Trying to connect to database")
+        # Установить соединение с базой данных
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             log.debug(f"Connected to database")
             cursor = conn.cursor()
 
+            # Проверить наличие записи об отправке вакансии пользователю
             query = """
                 SELECT COUNT(*) FROM sent_vacancies 
                 WHERE user_id = ? AND vacancy_url = ?
@@ -193,12 +242,15 @@ def is_vacancy_already_sent(user_id, vacancy_url) -> bool:
 
 
 def mark_vacancy_as_sent(user_id, vacancy_url):
+    """Отметить вакансию как отправленную конкретному пользователю."""
     try:
         log.debug(f"Trying to connect to database")
+        # Установить соединение с базой данных
         with sqlite3.connect(DB_PATH, timeout=10) as conn:
             log.debug(f"Connected to database")
             cursor = conn.cursor()
 
+            # Вставить запись об отправке (игнорировать, если уже существует)
             query = """
                 INSERT OR IGNORE INTO sent_vacancies (user_id, vacancy_url)
                 VALUES (?, ?)

@@ -1,3 +1,10 @@
+"""Модуль Telegram-бота для подписки на RSS-рассылку вакансий.
+
+Реализует команды /start, /help, /subscribe, /unsubscribe, /reset,
+/show_subscriptions, а также периодическую фоновую задачу парсинга
+RSS-лент и рассылки новых вакансий подписчикам.
+"""
+
 import asyncio
 import html
 import os
@@ -19,11 +26,14 @@ from modules.db import add_rss_subscription, list_user_rss_subscriptions, dict_r
     is_vacancy_already_sent, mark_vacancy_as_sent, delete_rss_subscription
 
 
+# Загрузить переменные окружения из .env файла
 load_dotenv()
+# Извлечь токен Telegram API из переменных окружения
 TELEGRAM_API_TOKEN = os.getenv("TELEGRAM_API_TOKEN")
 if not TELEGRAM_API_TOKEN:
     raise RuntimeError("TELEGRAM_API_TOKEN is not set in .env file")
 
+# Извлечь интервал проверки RSS-лент из переменных окружения
 try:
     RSS_CHECK_INTERVAL = int(os.getenv("RSS_CHECK_INTERVAL_SECONDS", "3600"))
 except ValueError:
@@ -32,18 +42,20 @@ except ValueError:
     )
     RSS_CHECK_INTERVAL = 3600
 
+# Ограничить количество парсимых вакансий за один цикл проверки обновлений в RSS-ленте
 VACANCIES_PARSE_LIMIT = 3
 
 
-# Состояния диалога
+# Определить состояния диалога для ConversationHandler
 (SEARCH_TEXT, REGION, WORK_FORMAT, EMPLOYMENT_FORM, EXPERIENCE, UNSELECT) = range(6)
 
 
+# Создать экземпляр приложения Telegram-бота
 app = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
 
 
 def build_keyboard(options_map: dict, skip_callback: str = "SKIP") -> InlineKeyboardMarkup:
-    """Строит клавиатуру из словаря {callback_data: label} + кнопка Пропустить"""
+    """Построить InlineKeyboardMarkup из словаря {callback_data: label} с кнопкой «Пропустить»."""
     buttons = [
         [InlineKeyboardButton(label, callback_data=data)]
         for data, label in options_map.items()
@@ -53,12 +65,14 @@ def build_keyboard(options_map: dict, skip_callback: str = "SKIP") -> InlineKeyb
 
 
 async def unexpected_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработать неожиданный текстовый ввод: попросить пользователя использовать кнопки."""
     await update.message.reply_text(
         "Пожалуйста, используйте кнопки для выбора или нажмите 'Пропустить'."
     )
 
 
 async def start_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработать команду /start: поприветствовать пользователя и предложить начать работу."""
     await update.message.reply_text(
         text=f"Привет, {update.message.from_user.first_name}! "
              f"Можем начинать, для получения справочной информации введи /help"
@@ -66,6 +80,7 @@ async def start_command_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def help_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработать команду /help: отправить пользователю список доступных команд."""
     help_text = "\n".join([
         "📜 Доступные команды:",
         "/start – Начать взаимодействие с ботом",
@@ -79,13 +94,16 @@ async def help_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def show_subscriptions_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработать команду /show_subscriptions: отобразить активные подписки пользователя."""
     user_id = str(update.effective_user.id)
+    # Получить список подписок пользователя из базы данных
     subscriptions = list_user_rss_subscriptions(user_id)
 
     if not subscriptions:
         await update.message.reply_text("📝 У вас нет активных подписок.")
         return
 
+    # Сформировать текстовое представление каждой подписки
     message = ""
     for _, _, rss_url in subscriptions:
         params = parse_rss_url_to_dict(rss_url)
@@ -99,12 +117,15 @@ async def show_subscriptions_command_handler(update: Update, context: ContextTyp
 
 
 async def send_vacancies_info(context: ContextTypes.DEFAULT_TYPE = None):
-    """Периодическая задача: парсит RSS-ленты и рассылает новые вакансии подписчикам.
-       Дедуплицирует RSS-запросы: если у нескольких пользователей одинаковый URL,
-       лента парсится один раз, а результаты рассылаются всем подписчикам."""
+    """Выполнить периодическую задачу: парсить RSS-ленты и рассылать новые вакансии подписчикам.
+
+    Дедуплицирует RSS-запросы: если у нескольких пользователей одинаковый URL,
+    лента парсится один раз, а результаты рассылаются всем подписчикам.
+    """
+    # Получить все подписки, сгруппированные по пользователям
     users_rss = dict_rss_subscriptions()
 
-    # Группируем подписки по URL: один RSS-запрос для одинаковых URL
+    # Сгруппировать подписки по URL: один RSS-запрос, если у нескольких пользователей одинаковый URL запроса
     url_to_users: dict[str, list[str]] = {}
     for user_id, subscriptions in users_rss.items():
         for subscription in subscriptions:
@@ -114,15 +135,18 @@ async def send_vacancies_info(context: ContextTypes.DEFAULT_TYPE = None):
                     url_to_users[rss_url] = []
                 url_to_users[rss_url].append(user_id)
 
+    # Обработать каждую уникальную RSS-ленту
     for rss_url, user_ids in url_to_users.items():
         try:
             log.info(f"Load RSS {rss_url} for {len(user_ids)} user(s)...")
+            # Загрузить и распарсить RSS-ленту
             rss_items = parse_rss_feed(rss_url)
             log.info(f"Find {len(rss_items)} items...")
 
             if not rss_items:
                 continue
 
+            # Распарсить страницы вакансий (с ограничением по количеству)
             results = []
             for i, item in enumerate(rss_items[:VACANCIES_PARSE_LIMIT]):
                 log.info(f"[{i + 1}/{VACANCIES_PARSE_LIMIT}] Parse: {item['title']}")
@@ -134,30 +158,33 @@ async def send_vacancies_info(context: ContextTypes.DEFAULT_TYPE = None):
                 else:
                     log.info(f"Failed to parse...")
 
-                # Пауза между запросами
+                # Выдержать паузу между запросами к HH.ru
                 await asyncio.sleep(1)
 
-            # Рассылаем каждую вакансию всем подписчикам этого URL
+            # Разослать каждую вакансию всем подписчикам данного URL
             for vac in results:
                 for user_id in user_ids:
                     try:
-                        # Не отправлять вакансию пользователю повторно
+                        # Пропустить, если вакансия уже была отправлена пользователю
                         if is_vacancy_already_sent(user_id, vac['url']):
                             continue
 
                         vac['rss_url'] = rss_url
 
+                        # Отрендерить карточку вакансии из HTML-шаблона
                         job_card = render_job_card_template(
                             template_path="./templates/jobs.html",
                             vacancy=vac
                         )
 
+                        # Отправить сообщение с карточкой вакансии пользователю
                         await app.bot.send_message(
                             chat_id=user_id,
                             text=job_card,
                             parse_mode="HTML"
                         )
 
+                        # Отметить вакансию как отправленную данному пользователю
                         mark_vacancy_as_sent(user_id, vac['url'])
                     except Exception as e:
                         log.error(f"Failed to send vacancy to user {user_id}: {e}")
@@ -169,23 +196,24 @@ async def send_vacancies_info(context: ContextTypes.DEFAULT_TYPE = None):
 # ==================== ConversationHandler: /unsubscribe ====================
 
 async def unsubscribe_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Шаг 1: показываем список подписок и запрашиваем номер для удаления"""
+    """Шаг 1 /unsubscribe: показать список подписок и запросить номер для удаления."""
     user_id = str(update.effective_user.id)
+    # Получить список подписок пользователя
     subscriptions = list_user_rss_subscriptions(user_id)
 
     if not subscriptions:
         await update.message.reply_text("📝 У вас нет активных подписок.")
         return ConversationHandler.END
 
-    # Формируем читаемый список
+    # Сформировать читаемый нумерованный список подписок
     lines = ["📝 <b>Ваши подписки:</b>\n"]
     for idx, (sub_id, _, rss_url) in enumerate(subscriptions, 1):
         params = parse_rss_url_to_dict(rss_url)
-        # Рендерим компактное описание
+        # Отрендерить компактное описание подписки из шаблона
         card = render_rss_params_template("templates/rss_params_message.html", params)
         lines.append(f"<b>#{idx}</b> {card}")
 
-    # Сохраняем список во временные данные для следующего шага
+    # Сохранить список подписок в контекст пользователя для следующего шага
     context.user_data["unsub_list"] = subscriptions
 
     lines.append("\n✏️ <b>Введите номер подписки, которую хотите удалить</b> (или /cancel для отмены):")
@@ -198,23 +226,25 @@ async def unsubscribe_command_handler(update: Update, context: ContextTypes.DEFA
 
 
 async def unsubscribe_number_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Шаг 2: удаляем выбранную подписку"""
+    """Шаг 2 /unsubscribe: удалить выбранную подписку по номеру."""
     raw = update.message.text.strip()
     subscriptions = context.user_data.get("unsub_list", [])
 
-    # Валидация: должно быть число в пределах списка
+    # Проверить, что введено целое число
     try:
         choice = int(raw)
     except ValueError:
         await update.message.reply_text("⚠️ Введите число — номер подписки из списка.")
         return UNSELECT
 
+    # Проверить, что номер находится в допустимом диапазоне
     if choice < 1 or choice > len(subscriptions):
         await update.message.reply_text(
             f"⚠️ Номер должен быть от 1 до {len(subscriptions)}. Попробуйте снова."
         )
         return UNSELECT
 
+    # Извлечь идентификатор подписки и удалить её из базы данных
     sub_id, _, rss_url = subscriptions[choice - 1]
     deleted_url = delete_rss_subscription(sub_id)
 
@@ -231,6 +261,7 @@ async def unsubscribe_number_received(update: Update, context: ContextTypes.DEFA
 
 
 async def unsubscribe_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработать отмену диалога /unsubscribe."""
     await update.message.reply_text("❌ Удаление подписки отменено.")
     return ConversationHandler.END
 
@@ -238,13 +269,16 @@ async def unsubscribe_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ==================== /reset ====================
 
 async def reset_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработать команду /reset: удалить все активные подписки пользователя."""
     user_id = str(update.effective_user.id)
+    # Получить все подписки пользователя
     subscriptions = list_user_rss_subscriptions(user_id)
 
     if not subscriptions:
         await update.message.reply_text("📝 У вас нет активных подписок.")
         return
 
+    # Удалить каждую подписку по идентификатору
     for sub_id, _, _ in subscriptions:
         delete_rss_subscription(sub_id)
 
@@ -256,7 +290,7 @@ async def reset_command_handler(update: Update, context: ContextTypes.DEFAULT_TY
 # ==================== ConversationHandler: /subscribe ====================
 
 async def subscribe_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Шаг 1: запрашиваем поисковый запрос"""
+    """Шаг 1 /subscribe: запросить у пользователя поисковый запрос."""
     await update.message.reply_text(
         "🔍 Введите поисковый запрос (например, «Python разработчик» или «DevOps»):"
     )
@@ -264,10 +298,11 @@ async def subscribe_command_handler(update: Update, context: ContextTypes.DEFAUL
 
 
 async def search_text_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняем поисковый запрос и переходим к выбору региона"""
+    """Сохранить поисковый запрос и перейти к выбору региона."""
 
     # Сохранить текст запроса для поиска вакансий
     context.user_data["search_text"] = update.message.text
+    # Проверить, что поисковый запрос не пустой
     if not update.message.text.strip():
         await update.message.reply_text(
             "⚠️ Поисковый запрос не может быть пустым. Пожалуйста, введите текст:"
@@ -283,7 +318,7 @@ async def search_text_received(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def region_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняем регион, переходим к формату работы"""
+    """Сохранить выбранный регион и перейти к выбору формата работы."""
 
     # Ожидать выбор пользователем региона поиска вакансий из списка, предоставленного в search_text_received
     query = update.callback_query
@@ -304,7 +339,7 @@ async def region_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def work_format_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняем формат работы, переходим к занятости"""
+    """Сохранить формат работы и перейти к выбору типа занятости."""
 
     # Ожидать выбор пользователем формата работы
     query = update.callback_query
@@ -325,7 +360,7 @@ async def work_format_selected(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def employment_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Сохраняем занятость, переходим к опыту"""
+    """Сохранить тип занятости и перейти к выбору опыта работы."""
 
     # Ожидать выбор пользователем типа занятости
     query = update.callback_query
@@ -346,7 +381,7 @@ async def employment_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def experience_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Финальный шаг: сохраняем опыт, формируем URL и выводим результат"""
+    """Финальный шаг /subscribe: сохранить опыт, сформировать RSS-URL и вывести результат."""
 
     # Ожидать выбор пользователем опыта работы
     query = update.callback_query
@@ -379,7 +414,7 @@ async def experience_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
         rss_url=rss_url
     )
 
-    # Собрать отчёт о выбранных параметрах
+    # Собрать отчёт о выбранных параметрах подписки
     summary_lines = ["❌ <b>Ошибка при оформлении подписки.</b>"] if not is_rss_added else [
         "✅ <b>Подписка оформлена!</b>",
         "",
@@ -429,7 +464,7 @@ async def experience_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def subscribe_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик отмены диалога"""
+    """Обработать отмену диалога /subscribe."""
     await update.message.reply_text("❌ Оформление подписки отменено.")
     return ConversationHandler.END
 
@@ -437,9 +472,10 @@ async def subscribe_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== Запуск бота ====================
 
 def run_bot():
+    """Запустить Telegram-бота: зарегистрировать обработчики и начать опрос обновлений."""
     log.info("Starting Telegram bot...")
 
-    # ConversationHandler для /subscribe
+    # Создать ConversationHandler для диалога /subscribe
     subscribe_conv = ConversationHandler(
         entry_points=[CommandHandler("subscribe", subscribe_command_handler)],
         states={
@@ -466,7 +502,7 @@ def run_bot():
         fallbacks=[CommandHandler("cancel", subscribe_cancel)],
     )
 
-    # ConversationHandler для /unsubscribe
+    # Создать ConversationHandler для диалога /unsubscribe
     unsubscribe_conv = ConversationHandler(
         entry_points=[CommandHandler("unsubscribe", unsubscribe_command_handler)],
         states={
@@ -477,6 +513,7 @@ def run_bot():
         fallbacks=[CommandHandler("cancel", unsubscribe_cancel)],
     )
 
+    # Зарегистрировать обработчики команд и диалогов
     app.add_handlers([
         CommandHandler("start", start_command_handler),
         CommandHandler("help", help_command_handler),
@@ -486,7 +523,7 @@ def run_bot():
         unsubscribe_conv,
     ])
 
-    # Запускаем периодическую задачу по проверке RSS-лент
+    # Запустить периодическую задачу проверки RSS-лент
     app.job_queue.run_repeating(
         send_vacancies_info,
         interval=RSS_CHECK_INTERVAL,
@@ -494,7 +531,7 @@ def run_bot():
     )
     log.info(f"RSS check scheduled every {RSS_CHECK_INTERVAL} seconds.")
 
+    # Запустить бесконечный опрос обновлений от Telegram
     log.info("Run polling...")
     app.run_polling()
     log.info("Telegram bot stopped...")
-
