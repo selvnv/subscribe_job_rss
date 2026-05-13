@@ -43,7 +43,13 @@ except ValueError:
     RSS_CHECK_INTERVAL = 3600
 
 # Ограничить количество парсимых вакансий за один цикл проверки обновлений в RSS-ленте
-VACANCIES_PARSE_LIMIT = 3
+try:
+    VACANCIES_PARSE_LIMIT = int(os.getenv("VACANCIES_PARSE_LIMIT", "3"))
+except ValueError:
+    log.warning(
+        "Invalid VACANCIES_PARSE_LIMIT value, using default 3 vacancies"
+    )
+    VACANCIES_PARSE_LIMIT = 3
 
 
 # Определить состояния диалога для ConversationHandler
