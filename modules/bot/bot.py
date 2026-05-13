@@ -458,7 +458,7 @@ async def experience_selected(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         }",
         "",
-        f"🔗 [Открыть RSS-ленту]({rss_url})",
+        f"🔗 <a href = {rss_url}>Открыть RSS-ленту",
     ]
 
     await query.edit_message_text(
