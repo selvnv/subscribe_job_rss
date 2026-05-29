@@ -1,0 +1,19 @@
+name: subjob
+
+services:
+  subjob-bot:
+    container_name: subjob-bot
+    build:
+      dockerfile: ./Dockerfile
+      context: .
+    env_file:
+      - .env
+    volumes:
+      - db:/app/data
+      - logs:/app/logs
+    restart: unless-stopped
+    command: sh -c "subjob init && subjob runbot"
+
+volumes:
+  db:
+  logs:
