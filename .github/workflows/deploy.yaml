@@ -2,8 +2,11 @@ name: Deploy to VPS
 
 on:
   push:
+    # Только при пуше в main и тэгов версионирования (например, v1.0.1)
     branches:
       - main
+    tags:
+      - v*.*.*
 
 jobs:
   deploy:
