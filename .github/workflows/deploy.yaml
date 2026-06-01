@@ -22,7 +22,7 @@ jobs:
           chmod 700 ~/.ssh
           chmod 600 ~/.ssh/deploy_key
           
-          ssh-keyscan -H ${{ secrets.VPS_HOST }} -p ${{ secrets.VPS_PORT }} >> ~/.ssh/known_hosts
+          ssh-keyscan -p ${{ secrets.VPS_PORT }} -H ${{ secrets.VPS_HOST }} >> ~/.ssh/known_hosts
 
       - name: Sync project files
         # Некоторых каталогов, исключенных через --exclude нет в git.
