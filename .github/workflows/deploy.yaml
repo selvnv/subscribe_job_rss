@@ -1,0 +1,64 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup SSH on runner
+        # Сохранить приватный ключ на раннере для подключения.
+        # Настроить права на каталог и ключ.
+        # Добавить сервер в known-hosts, чтобы при подключении не запрашивалось интерактивное подтверждение.
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 700 ~/.ssh
+          chmod 600 ~/.ssh/deploy_key
+          
+          ssh-keyscan -H ${{ secrets.VPS_HOST }} -p ${{ secrets.VPS_PORT }} >> ~/.ssh/known_hosts
+
+      - name: Sync project files
+        # Некоторых каталогов, исключенных через --exclude нет в git.
+        # Однако из-за использования --delete их необходимо исключить из синхронизации,
+        # чтобы они не были удалены с сервера.
+        run: |
+          rsync -avz \
+            --delete \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='deploy' \
+            --exclude='.venv' \
+            --exclude='__pycache__' \
+            --exclude='data' \
+            --exclude='logs' \
+            --exclude='.env' \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_PORT }}" \
+            ./ ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.DEPLOY_CATALOG }}/
+
+      - name: Rebuild image and restart container
+        # Выполнить удаленно несколько команд на сервере через SSH
+        run: |
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'STOPPER'
+            cd ${{ secrets.DEPLOY_CATALOG }}
+            docker compose up --build -d --remove-orphans
+          STOPPER
+
+      - name: Clean up old Docker images
+        # Удалить все неиспользуемые образы
+        run: |
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "docker image prune -af --filter 'until=24h'"
+
+      - name: Healthcheck
+        # Проверяет, что контейнер с именем `subjob-bot` запущен и в статусе `Up`.
+        # Если нет — команда упадёт с ненулевым кодом возврата, и workflow станет failed
+        run: |
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+            "docker ps --filter name=subjob-bot --format '{{.Status}}' | grep -q 'Up'"

@@ -244,6 +244,152 @@ ConversationHandler(
 
 ---
 
+### Деплой на VPS (Docker + CI/CD)
+
+Рекомендуемый способ деплоя — через Docker и GitHub Actions. Пуш в ветку `main` автоматически доставляет код на сервер, пересобирает контейнер и запускает бота.
+
+#### Предварительные требования
+
+- VPS с **Ubuntu 22.04/24.04** и публичным IP-адресом
+- Доступ к серверу по SSH от пользователя с sudo-правами (далее — `vps`)
+- Локально установленный `git`, `ssh-keygen`
+- Токен Telegram-бота от [@BotFather](https://t.me/BotFather)
+
+#### 1. Генерация SSH-ключа для CI/CD
+
+На **локальной машине**:
+
+```bash
+ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/subjob_deploy
+```
+
+Создаст два файла:
+- `~/.ssh/subjob_deploy` — **приватный** ключ (попадёт в GitHub Secrets)
+- `~/.ssh/subjob_deploy.pub` — **публичный** ключ (попадёт на VPS)
+
+#### 2. Первичная настройка сервера
+
+Скопируй скрипт настройки на VPS и запусти от пользователя с sudo-правами:
+
+```bash
+scp deploy/setup-server.sh vps@<VPS_IP>:/home/vps/
+ssh vps@<VPS_IP>
+chmod +x /home/vps/setup-server.sh
+sudo /home/vps/setup-server.sh
+```
+
+Скрипт в интерактивном режиме:
+- Установит **Docker**, **docker-compose-plugin** и **git**
+- Создаст системного пользователя `subjob` с правами на Docker
+- Создаст рабочую директорию `/opt/subjob`
+- Запросит **Telegram API Token** и создаст `/opt/subjob/.env`
+- Запросит **публичный SSH-ключ** (`subjob_deploy.pub`) для авторизации CI/CD
+
+После выполнения скрипта VPS готова к приёму деплоев.
+
+#### 3. Настройка GitHub Secrets
+
+В репозитории на GitHub: **Settings → Secrets and variables → Actions → New repository secret**
+
+| Secret | Описание | Как получить |
+|--------|----------|--------------|
+| `VPS_HOST` | IP-адрес VPS | Выдаёт хостинг-провайдер |
+| `VPS_PORT` | SSH-порт | По умолчанию `22`, если не меняли |
+| `VPS_USER` | `subjob` | Имя пользователя, созданное скриптом |
+| `VPS_SSH_PRIVATE_KEY` | Приватный ключ | **Всё содержимое** файла `~/.ssh/subjob_deploy` (включая строки `-----BEGIN` и `-----END`) |
+| `DEPLOY_CATALOG` | `/opt/subjob` | Рабочая директория на VPS |
+
+> **Важно:** при копировании приватного ключа в Secret нужно скопировать файл **целиком**, включая первую и последнюю строки с `-----BEGIN OPENSSH PRIVATE KEY-----` / `-----END OPENSSH PRIVATE KEY-----`.
+
+#### 4. Первый деплой
+
+После добавления Secrets — обычный пуш в `main`:
+
+```bash
+git add .
+git commit -m "Add Docker & CI/CD configuration"
+git push origin main
+```
+
+Workflow запустится автоматически. Отслеживать прогресс можно на вкладке **Actions** репозитория.
+
+#### 5. Проверка работоспособности
+
+Подключись к VPS от имени `subjob`:
+
+```bash
+ssh -i ~/.ssh/subjob_deploy subjob@<VPS_IP>
+```
+
+Полезные команды на сервере:
+
+```bash
+# Статус контейнера
+docker ps --filter name=subjob-bot
+
+# Логи бота (последние 50 строк)
+docker logs subjob-bot --tail 50
+
+# Логи в реальном времени
+docker compose -f /opt/subjob/docker-compose.yaml logs -f
+
+# Перезапуск бота
+docker compose -f /opt/subjob/docker-compose.yaml restart
+```
+
+#### Структура файлов на VPS после деплоя
+
+```
+/opt/subjob/
+├── .env                  # Переменные окружения (TELEGRAM_API_TOKEN, ...)
+├── docker-compose.yaml   # Конфигурация Docker-сервиса
+├── Dockerfile            # Инструкция сборки образа
+├── pyproject.toml
+├── uv.lock
+├── modules/              # Исходный код приложения
+├── templates/            # Jinja2-шаблоны сообщений
+├── data/                 # Docker volume: база данных SQLite
+│   └── rss_subscriptions.db
+└── logs/                 # Docker volume: логи приложения
+    └── app.log
+```
+
+#### Как работает CI/CD
+
+```
+git push origin main
+        │
+        ▼
+┌──────────────────────────────┐
+│  GitHub Actions Runner       │
+│  (ubuntu-latest)             │
+│                              │
+│  1. Клонирует репозиторий    │
+│  2. Настраивает SSH          │
+│  3. rsync файлов на VPS      │
+│  4. docker compose up --build│
+│  5. docker image prune       │
+│  6. Healthcheck              │
+└──────────┬───────────────────┘
+           │  SSH (subjob_deploy key)
+           ▼
+┌──────────────────────────────┐
+│  VPS                         │
+│  /opt/subjob/                │
+│                              │
+│  docker compose up --build   │
+│  Контейнер subjob-bot        │
+│  Статус: Up                  │
+└──────────────────────────────┘
+```
+
+---
+
+### Ручная установка без Docker (через systemd)
+
+<details>
+<summary>Альтернативный способ — установка Python-окружения и systemd-сервиса вручную</summary>
+
 ### Установка на чистую ВМ
 
 #### Системные требования
