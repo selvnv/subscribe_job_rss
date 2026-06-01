@@ -30,8 +30,9 @@ RUN uv pip install --no-deps .
 FROM python:3.12-slim AS runtime
 
 # Создать непривилегированного пользователя для запуска приложения
-#   --uid 1000       : фиксированный UID для корректной настройки прав на смонтированные volume
-RUN useradd --no-create-home --uid 1000 subjob
+#   --uid ${HOST_UID}       : возможность задать UID при сборке для корректной настройки прав на смонтированные volume
+ARG HOST_UID=999
+RUN useradd --no-create-home --uid ${HOST_UID} subjob
 
 WORKDIR /app
 

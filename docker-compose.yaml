@@ -6,6 +6,8 @@ services:
     build:
       dockerfile: ./Dockerfile
       context: .
+      args:
+        HOST_UID: "${HOST_UID:-999}"
     env_file:
       - .env
     volumes:

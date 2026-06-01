@@ -47,6 +47,7 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_PORT }} ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} << 'STOPPER'
             cd ${{ secrets.DEPLOY_CATALOG }}
+            export HOST_UID=$(id -u ${{ secrets.VPS_USER }})
             docker compose up --build -d --remove-orphans
           STOPPER
 
