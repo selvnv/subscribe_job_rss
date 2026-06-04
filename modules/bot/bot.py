@@ -51,13 +51,30 @@ except ValueError:
     )
     VACANCIES_PARSE_LIMIT = 3
 
+USE_PROXY = os.getenv("USE_PROXY", "false").lower() == "true"
+PROXY_URL = os.getenv("PROXY_URL")
+
 
 # Определить состояния диалога для ConversationHandler
 (SEARCH_TEXT, REGION, WORK_FORMAT, EMPLOYMENT_FORM, EXPERIENCE, UNSELECT) = range(6)
 
 
-# Создать экземпляр приложения Telegram-бота
-app = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
+if USE_PROXY and PROXY_URL:
+    # Создать экземпляр приложения Telegram-бота с прокси
+    log.info(f"Using proxy: {PROXY_URL}")
+    app = (ApplicationBuilder()
+           .token(TELEGRAM_API_TOKEN)
+           .proxy_url(PROXY_URL)
+           .get_updates_proxy_url(PROXY_URL)
+           .build()
+    )
+else:
+    if USE_PROXY and not PROXY_URL:
+        log.warning(
+            "USE_PROXY is enabled but PROXY_URL is not set. "
+            "Bot will run without proxy."
+        )
+    app = ApplicationBuilder().token(TELEGRAM_API_TOKEN).build()
 
 
 def build_keyboard(options_map: dict, skip_callback: str = "SKIP") -> InlineKeyboardMarkup:

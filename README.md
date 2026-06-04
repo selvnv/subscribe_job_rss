@@ -406,12 +406,16 @@ git push origin main
 | `TELEGRAM_API_TOKEN` | Обязательна | Токен Telegram бота, полученный от @BotFather                                                                | —            |
 | `RSS_CHECK_INTERVAL_SECONDS` | Опциональна | Интервал автоматической проверки RSS-лент в секундах                                                         | `3600` (1 час) |
 | `VACANCIES_PARSE_LIMIT` | Опциональна | Ограничение на количество вакансий, которые парсятся с каждой RSS-ленты за один цикл проверки новых вакансий | `3`          |
+| `USE_PROXY` | Опциональна | Включить маршрутизацию запросов к Telegram через прокси-сервер (`true`/`false`) | `false` |
+| `PROXY_URL` | Опциональна | URL прокси-сервера. Поддерживаются протоколы `http://`, `https://`, `socks5://`, `socks5h://`. Требуется при `USE_PROXY=true` | — |
 
 Пример `.env`:
 ```
 TELEGRAM_API_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
 RSS_CHECK_INTERVAL_SECONDS=1800
 VACANCIES_PARSE_LIMIT=5
+USE_PROXY=false
+PROXY_URL=socks5://localhost:1080
 ```
 
 #### Пошаговая инструкция
@@ -448,6 +452,7 @@ pip install .
 - `jinja2` — рендеринг HTML-шаблонов сообщений
 - `python-dotenv` — загрузка переменных из `.env`
 - `python-telegram-bot` — работа с Telegram API
+- `httpx[socks]` — поддержка SOCKS5-прокси для `python-telegram-bot`
 - `requests` — HTTP-запросы к HH.ru
 - `tabulate` — табличный вывод в терминале
 
