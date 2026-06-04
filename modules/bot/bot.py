@@ -64,8 +64,8 @@ if USE_PROXY and PROXY_URL:
     log.info(f"Using proxy: {PROXY_URL}")
     app = (ApplicationBuilder()
            .token(TELEGRAM_API_TOKEN)
-           .proxy_url(PROXY_URL)
-           .get_updates_proxy_url(PROXY_URL)
+           .proxy(PROXY_URL)
+           .get_updates_proxy(PROXY_URL)
            .build()
     )
 else:
