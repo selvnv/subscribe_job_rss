@@ -9,6 +9,8 @@ APPLICATION_CATALOG=/opt/subjob
 SSH_CATALOG=/home/${APPLICATION_USERNAME}/.ssh
 SSH_AUTH_KEYS_PATH=${SSH_CATALOG}/authorized_keys
 
+PROXY_URL=socks5://172.17.0.1:1080
+
 # Цвета для вывода
 RED_COLOR='\033[0;91m'
 GREEN_COLOR='\033[0;92m'
@@ -121,5 +123,24 @@ fi
 sudo chmod 700 ${SSH_CATALOG}
 sudo chmod 600 ${SSH_AUTH_KEYS_PATH}
 sudo chown -R ${APPLICATION_USERNAME}:${APPLICATION_USERNAME} ${SSH_CATALOG}
+echo -e "\n${BLUE_COLOR}==================Public key for git runner authorization is ready==================${RESET_COLOR}"
+
+
+# Добавить параметры отправки запросов через прокси в /opt/subjob/.env
+echo -e "\n${BLUE_COLOR}==================Add proxy settings into .env file==================${RESET_COLOR}"
+read -r -p 'Do you want to add proxy settings? (y/n)' set_up_proxy_flag
+if [[ $set_up_proxy_flag =~ ^[yY]$ ]]; then
+  if ! grep -qF 'PROXY_URL' ${APPLICATION_CATALOG}/.env; then
+sudo -u ${APPLICATION_USERNAME} tee -a ${APPLICATION_CATALOG}/.env >/dev/null << EOF
+USE_PROXY=True
+PROXY_URL=${PROXY_URL}
+EOF
+    echo -e "\n${BLUE_COLOR}==================Set up proxy settings with url ${PROXY_URL}==================${RESET_COLOR}"
+  else
+    echo -e "\n${BLUE_COLOR}==================Proxy settings already exists==================${RESET_COLOR}"
+  fi
+else
+echo -e "\n${BLUE_COLOR}==================Do not set up proxy==================${RESET_COLOR}"
+fi
 
 echo -e "\n${GREEN_COLOR}Server is ready for deployment\nNext: configure Github Secrets (more info in README.md)${RESET_COLOR}"
